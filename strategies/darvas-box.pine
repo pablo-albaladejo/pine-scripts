@@ -1,0 +1,348 @@
+//@version=6
+strategy("Complete Darvas Box Strategy (Thesis-Aligned)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_value=0.1)
+
+// =============================================================================
+//                            CONFIGURATION (INPUTS)
+// =============================================================================
+
+// -- Optional Annual High Filter
+useAnnualHighFilter = input.bool(false, title="Use Annual High Proximity Filter", group="Filters", tooltip="Only form boxes when price is near its annual high. Helps filter for strongest stocks.")
+annualLookback      = input.int(252, title="Annual High Lookback (days)", group="Filters", minval=50, tooltip="Period to calculate annual high. 252 = ~1 trading year")
+nearHighPercent     = input.float(5.0, title="Proximity to Annual High (%)", group="Filters", minval=0.0, tooltip="How close price must be to annual high to qualify. 5% means within 5% of the high.")
+
+// -- Relative High Lookback Period
+recentHighLookback  = input.int(252, title="Relative High Lookback Period (days)", group="Filters", minval=5, tooltip="Period to look back for relative highs. 252 = ~1 year, 20 = ~1 month")
+
+// -- Darvas Box Confirmation (classic)
+ceilingConfirmationDays = input.int(3, title="Bars to Confirm Box Ceiling", group="Box Logic", minval=2, tooltip="Number of bars without new highs to confirm box ceiling. Classic Darvas uses 3.")
+floorConfirmationDays   = input.int(3, title="Bars to Confirm Box Floor", group="Box Logic", minval=2, tooltip="Number of bars without new lows to confirm box floor. Classic Darvas uses 3.")
+
+// -- Minimum box quality filters
+minBarsInBox            = input.int(6, title="Minimum Bars Inside Box", group="Box Logic", minval=3, tooltip="Minimum width of box in bars. Filters out narrow/short-lived boxes.")
+minBoxHeightPct         = input.float(1.0, title="Minimum Box Height (%)", group="Box Logic", minval=0.0, tooltip="Minimum height of box as percentage. 1% means box must be at least 1% from floor to ceiling.")
+
+// -- Floor confirmation latency
+minBarsAfterHighForFloor = input.int(3, title="Min Bars After High Before Floor Search", group="Box Logic", minval=0, tooltip="Bars to wait after ceiling confirmation before starting floor search. Ensures proper pullback.")
+
+// -- Volume Filter (only at breakout)
+useVolumeFilter     = input.bool(true, title="Enable Volume Filter on Breakout", group="Filters", tooltip="Require high volume on breakout. Helps confirm genuine breakouts vs false signals.")
+volumeLookback      = input.int(50, title="Volume MA Period", group="Filters", minval=5, tooltip="Period for volume moving average calculation. Used as baseline for volume comparison.")
+volumeMultiplier    = input.float(1.5, title="Volume Multiplier (e.g., 1.5 = 50% above average)", group="Filters", minval=1.0, tooltip="Volume must be this many times above average. 1.5 = 50% above average volume.")
+
+// -- Market Trend Filter
+useMarketFilter     = input.bool(true, title="Enable Market Trend Filter", group="Filters", tooltip="Only trade when overall market is bullish. Darvas emphasized market conditions.")
+marketTicker        = input.symbol("SPY", title="Market Index Ticker", group="Filters", tooltip="Market index to use for trend filter. SPY = S&P 500, QQQ = Nasdaq, etc.")
+marketLookback      = input.int(200, title="Market SMA Period", group="Filters", minval=50, tooltip="SMA period for market trend. Market bullish when above this SMA. 200 is common long-term trend.")
+
+// -- Visuals
+showAnnualHigh      = input.bool(true, title="Show Annual High Line", group="Visualization", tooltip="Display the annual high line on chart for reference.")
+boxColor            = input.color(color.new(color.blue, 80), title="Box Color", group="Visualization", tooltip="Color and transparency for Darvas boxes. Lighter colors show more price action.")
+showDebugLabels     = input.bool(true, title="Show Debug Labels", group="Visualization", tooltip="Show debug information about box state and breakout detection.")
+
+// =============================================================================
+//                               CALCULATIONS
+// =============================================================================
+
+// Market Condition
+marketClose = request.security(marketTicker, "1D", close)
+marketSma   = ta.sma(marketClose, marketLookback)
+isBullMarket = useMarketFilter ? (marketClose > marketSma) : true
+
+// Annual high proximity (optional)
+float fiftyTwoWeekHigh = ta.highest(high[1], annualLookback)
+isNear52WeekHigh = high > fiftyTwoWeekHigh * (1 - nearHighPercent / 100)
+passAnnualFilter = useAnnualHighFilter ? isNear52WeekHigh : true
+
+// Relative high detection
+float recentHigh = ta.highest(high[1], recentHighLookback)
+newRelativeHigh = high > recentHigh
+
+// Volume
+float avgVolume       = ta.sma(volume[1], volumeLookback)
+volumeOnBreakout = useVolumeFilter ? (volume > avgVolume * volumeMultiplier) : true
+
+// =============================================================================
+//                         DARVAS BOX FORMATION LOGIC
+//   Thesis rules:
+//   - Start tracking after a new relative high (configurable lookback period).
+//   - Confirm ceiling: configurable days WITHOUT a higher high.
+//   - Confirm floor: configurable days WITHOUT a lower low (ignore closes).
+//   - Volume only required on breakout above confirmed ceiling.
+// =============================================================================
+
+var string boxState = "IDLE"  // IDLE, SEEKING_CEILING_CONF, CEILING_CONFIRMED, SEEKING_FLOOR_CONF, BOX_FULLY_CONFIRMED
+var float potentialCeiling = na
+var float potentialFloor   = na
+var float confirmedCeiling = na
+var float confirmedFloor   = na
+var int   ceilingConfDaysCount = 0
+var int   floorConfDaysCount   = 0
+var int   highBarIndex = na
+var int   lowBarIndex  = na
+
+// -- Additional state variables for classic Darvas method
+var int   barsSinceHigh = na
+var float runningFloorMin = na
+var bool  boxWasBroken = false
+
+// Single active Darvas box (only one at a time per Darvas methodology)
+var box currentBox = na
+var float currentBoxTop = na
+var float currentBoxBottom = na
+
+// Check for breakout of current active box
+hasBreakout = false
+float breakoutBoxTop = na
+float breakoutBoxBottom = na
+
+if not na(currentBoxTop) and not na(currentBoxBottom)
+    if high > currentBoxTop  // Use high instead of close crossover for immediate detection
+        hasBreakout := true
+        breakoutBoxTop := currentBoxTop
+        breakoutBoxBottom := currentBoxBottom
+
+// ----------------------- State Machine -----------------------
+if isBullMarket and passAnnualFilter
+    if boxState == "IDLE"
+        // Start when we print a new relative high within lookback period (no volume requirement here)
+        if newRelativeHigh
+            potentialCeiling := high
+            highBarIndex := bar_index
+            ceilingConfDaysCount := 0
+            // resets
+            runningFloorMin := na
+            barsSinceHigh := 0
+            floorConfDaysCount := 0
+            potentialFloor := na
+            boxState := "SEEKING_CEILING_CONF"
+
+    else if boxState == "SEEKING_CEILING_CONF"
+        // If a higher high appears -> reset potential ceiling and counter
+        if high > potentialCeiling
+            potentialCeiling := high
+            highBarIndex := bar_index
+            ceilingConfDaysCount := 0
+            // resets
+            runningFloorMin := na
+            barsSinceHigh := 0
+        else
+            // No higher high this bar -> count towards confirmation
+            ceilingConfDaysCount += 1
+            if ceilingConfDaysCount >= ceilingConfirmationDays
+                confirmedCeiling := potentialCeiling
+                // preparar tracking del suelo
+                runningFloorMin := na
+                barsSinceHigh := na  // Reset to start counting from ceiling confirmation
+                floorConfDaysCount := 0
+                potentialFloor := na
+                boxState := "CEILING_CONFIRMED"
+                
+                // Debug: Ceiling confirmed
+                if showDebugLabels
+                    label.new(bar_index, high + (high * 0.03), 
+                             "CEILING CONFIRMED\nPrice: " + str.tostring(confirmedCeiling) + "\nNow looking for floor...",
+                             style=label.style_label_down, color=color.lime, textcolor=color.black, size=size.small)
+
+    else if boxState == "CEILING_CONFIRMED"
+        // Start counting bars after the ceiling was CONFIRMED (not the original high)
+        barsSinceHigh := na(barsSinceHigh) ? 0 : barsSinceHigh + 1
+        
+        // Debug: Show waiting period
+        if showDebugLabels and barsSinceHigh < minBarsAfterHighForFloor
+            label.new(bar_index, high + (high * 0.01), 
+                     "WAITING\nBars: " + str.tostring(barsSinceHigh) + "/" + str.tostring(minBarsAfterHighForFloor) +
+                     "\nCurrent Low: " + str.tostring(low),
+                     style=label.style_label_down, color=color.white, textcolor=color.black, size=size.tiny)
+
+        // Only start floor tracking after X bars (latency period)
+        if barsSinceHigh >= minBarsAfterHighForFloor
+            // Update running minimum, but only confirm it after N bars
+            if na(runningFloorMin)
+                // IMPORTANT: Use the historical minimum from the entire pullback, not just current bar
+                historicalLow = low
+                for j = 1 to barsSinceHigh + 1
+                    if not na(low[j])
+                        historicalLow := math.min(historicalLow, low[j])
+                
+                runningFloorMin := historicalLow  // Use historical minimum, not current low
+                floorConfDaysCount := 0
+                
+                // Debug: First floor candidate with historical context
+                if showDebugLabels
+                    label.new(bar_index, low - (low * 0.01), 
+                             "FLOOR START\nCurrent: " + str.tostring(low) + "\nUsing Historical: " + str.tostring(historicalLow) +
+                             "\nBars since ceiling: " + str.tostring(barsSinceHigh),
+                             style=label.style_label_up, color=color.purple, textcolor=color.white, size=size.small)
+            else if low < runningFloorMin
+                // New lower low found - reset confirmation and update minimum
+                runningFloorMin := low
+                floorConfDaysCount := 0
+                
+                // Debug: Floor update
+                if showDebugLabels
+                    label.new(bar_index, low - (low * 0.01), 
+                             "FLOOR UPDATE\nNew Low: " + str.tostring(low) + "\nCount reset: 0",
+                             style=label.style_label_up, color=color.orange, textcolor=color.white, size=size.tiny)
+            else
+                // No new low - increment confirmation counter
+                floorConfDaysCount += 1
+                
+                // Debug: Floor confirmation progress
+                if showDebugLabels and floorConfDaysCount <= floorConfirmationDays
+                    label.new(bar_index, low - (low * 0.01), 
+                             "FLOOR CONFIRM\nCount: " + str.tostring(floorConfDaysCount) + "/" + str.tostring(floorConfirmationDays) +
+                             "\nFloor: " + str.tostring(runningFloorMin),
+                             style=label.style_label_up, color=color.gray, textcolor=color.white, size=size.tiny)
+
+            // Only confirm floor after N bars without new lows
+            if floorConfDaysCount >= floorConfirmationDays
+                confirmedFloor := runningFloorMin
+                // Box quality checks
+                boxHeightPct = (confirmedCeiling - confirmedFloor) / confirmedCeiling * 100.0
+                barsInBox    = bar_index - highBarIndex
+
+                // Debug label for box quality check
+                if showDebugLabels
+                    qualityResult = (barsInBox >= minBarsInBox) and (boxHeightPct >= minBoxHeightPct) ? "PASSED" : "FAILED"
+                    label.new(bar_index, low - (low * 0.02), 
+                             "BOX QUALITY " + qualityResult + "\nBars: " + str.tostring(barsInBox) + " (min:" + str.tostring(minBarsInBox) + ")" +
+                             "\nHeight: " + str.tostring(boxHeightPct, "#.##") + "% (min:" + str.tostring(minBoxHeightPct) + "%)" +
+                             "\nCeiling: " + str.tostring(confirmedCeiling) + "\nFloor: " + str.tostring(confirmedFloor), 
+                             style=label.style_label_up, color=color.yellow, textcolor=color.black, size=size.small)
+
+                if (barsInBox >= minBarsInBox) and (boxHeightPct >= minBoxHeightPct)
+                    boxState := "BOX_FULLY_CONFIRMED"
+
+                    if not na(currentBox)
+                        box.delete(currentBox)
+
+                    currentBox := box.new(highBarIndex, confirmedCeiling, bar_index, confirmedFloor,
+                                          border_color=boxColor, border_width=2, bgcolor=boxColor)
+                    currentBoxTop    := confirmedCeiling
+                    currentBoxBottom := confirmedFloor
+                    boxWasBroken     := false  // Reset breakout flag for new box
+                    
+                    // Debug label for successful box creation
+                    if showDebugLabels
+                        label.new(bar_index, high + (high * 0.02), 
+                                 "BOX CREATED\nCeiling: " + str.tostring(confirmedCeiling) + "\nFloor: " + str.tostring(confirmedFloor),
+                                 style=label.style_label_down, color=color.green, textcolor=color.white, size=size.normal)
+                else
+                    // If quality not met, continue looking for floor (don't activate box)
+                    floorConfDaysCount := 0
+
+        // If HH appears before floor confirmation, restart ceiling confirmation
+        if not na(confirmedCeiling) and high > confirmedCeiling
+            potentialCeiling := high
+            highBarIndex := bar_index
+            ceilingConfDaysCount := 0
+            // Reset floor tracking
+            runningFloorMin := na
+            barsSinceHigh := 0
+            potentialFloor := na
+            boxState := "SEEKING_CEILING_CONF"
+
+    else if boxState == "BOX_FULLY_CONFIRMED"
+        // If a new higher high forms, start hunting for the next box
+        if high > confirmedCeiling
+            // Delete current box before starting new one
+            if not na(currentBox)
+                box.delete(currentBox)
+                currentBox := na
+                currentBoxTop := na
+                currentBoxBottom := na
+
+            potentialCeiling := high
+            highBarIndex := bar_index
+            ceilingConfDaysCount := 0
+            // resets
+            runningFloorMin := na
+            barsSinceHigh := 0
+            floorConfDaysCount := 0
+            potentialFloor := na
+            boxState := "SEEKING_CEILING_CONF"
+
+// Handle current active box - check breakout BEFORE extending
+if not na(currentBox) and not na(currentBoxTop) and not na(currentBoxBottom)
+    // Check for breakout on current bar FIRST
+    currentBreakout = high > currentBoxTop or low < currentBoxBottom
+    
+    if currentBreakout and not boxWasBroken
+        // Box is being broken right now - close it at PREVIOUS bar (not current)
+        box.set_right(currentBox, bar_index - 1)
+        boxWasBroken := true
+        
+        // Debug label for breakout
+        if showDebugLabels
+            breakoutType = high > currentBoxTop ? "CEILING BREAK" : "FLOOR BREAK"
+            breakoutPrice = high > currentBoxTop ? str.tostring(high) : str.tostring(low)
+            label.new(bar_index, high + (high * 0.01), 
+                     breakoutType + "\nPrice: " + breakoutPrice + "\nBox Top: " + str.tostring(currentBoxTop) + "\nBox Bot: " + str.tostring(currentBoxBottom), 
+                     style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
+        
+        // Clear box tracking
+        currentBox := na
+        currentBoxTop := na
+        currentBoxBottom := na
+    else if not currentBreakout and not boxWasBroken
+        // Price is still within box - extend to current bar
+        box.set_right(currentBox, bar_index)
+        
+        // Debug label for active box
+        if showDebugLabels and bar_index % 5 == 0
+            label.new(bar_index, high + (high * 0.01), 
+                     "ACTIVE BOX\nState: " + boxState + "\nHigh: " + str.tostring(high) + "\nLow: " + str.tostring(low) + 
+                     "\nBox Top: " + str.tostring(currentBoxTop) + "\nBox Bot: " + str.tostring(currentBoxBottom), 
+                     style=label.style_label_down, color=color.blue, textcolor=color.white, size=size.tiny)
+
+// =============================================================================
+//                          BUY AND SELL LOGIC
+// =============================================================================
+
+// Entry: breakout above CONFIRMED ceiling + (optional) volume + (optional) bull market
+entrySignal = false
+var float entryBoxTop = na
+var float currentStopLoss = na
+
+if strategy.position_size == 0 and hasBreakout and volumeOnBreakout and isBullMarket and passAnnualFilter
+    entrySignal := true
+    entryBoxTop := breakoutBoxTop
+    currentStopLoss := breakoutBoxBottom
+
+if entrySignal
+    strategy.entry("Darvas Buy", strategy.long)
+
+// Trailing stop: move to the FLOOR of the current active box if it's higher
+if strategy.position_size > 0
+    newStopLoss = currentStopLoss
+    if not na(currentBoxTop) and not na(currentBoxBottom)
+        // Use current active box for trailing stop
+        if not na(entryBoxTop) and currentBoxTop > entryBoxTop and currentBoxBottom > currentStopLoss
+            newStopLoss := currentBoxBottom
+
+    if newStopLoss != currentStopLoss
+        currentStopLoss := newStopLoss
+
+    // Exit via stop-loss at current box floor
+    strategy.exit("SL", from_entry="Darvas Buy", stop=currentStopLoss)
+
+// Bear market hard exit (if enabled)
+if strategy.position_size > 0 and useMarketFilter and not isBullMarket
+    strategy.close("Darvas Buy", comment="Bear Market - Exit All Positions")
+
+// =============================================================================
+//                              VISUALIZATION
+// =============================================================================
+
+// Annual high line (optional - based on configured lookback period)
+plot(showAnnualHigh ? fiftyTwoWeekHigh : na, title="Annual High Line", color=color.new(color.orange, 20), style=plot.style_linebr)
+
+// Volume threshold (only if filter is enabled)
+plot(useVolumeFilter ? avgVolume * volumeMultiplier : na, title="Breakout Volume Threshold", color=color.red, linewidth=2, style=plot.style_linebr, display=display.data_window)
+
+// Market background
+var bgcolor_color = useMarketFilter ? (isBullMarket ? color.new(color.green, 95) : color.new(color.red, 95)) : na
+bgcolor(bgcolor_color, title="Market Trend Background")
+
+// Active stop loss
+plot(strategy.position_size > 0 ? currentStopLoss : na, title="Active Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)

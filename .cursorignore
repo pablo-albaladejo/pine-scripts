@@ -1,0 +1,18 @@
+# Files and directories to ignore in Cursor context
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*~
+
+# IDE files (except our context files)
+.vscode/
+!.vscode/settings.json
+.idea/

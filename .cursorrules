@@ -1,0 +1,74 @@
+# Pine Script Development Rules for Cursor
+
+## Project Overview
+This is a Pine Script project for developing TradingView indicators and trading strategies. Always reference the comprehensive Pine Script guide located at `docs/PINE_SCRIPT_GUIDE.md` when working with Pine Script files.
+
+## Pine Script Development Guidelines
+
+### Always Follow These Rules:
+1. **Version Declaration**: Always start Pine Script files with `//@version=5`
+2. **Syntax Reference**: Consult `docs/PINE_SCRIPT_GUIDE.md` for proper syntax and best practices
+3. **Code Structure**: Follow the patterns outlined in the guide
+4. **Variable Naming**: Use descriptive names in camelCase for Pine Script
+5. **Comments**: Use Spanish for user-facing text and comments when working with Spanish strategies
+
+### Pine Script Best Practices:
+- Use proper input parameter grouping with `group` parameter
+- Implement proper error handling with `na` checks
+- Follow performance optimization guidelines from the guide
+- Use built-in functions (`ta.*`, `math.*`) appropriately
+- Implement proper plotting with meaningful titles and colors
+
+### Strategy Development:
+- Include comprehensive risk management
+- Use proper position sizing with `default_qty_type=strategy.percent_of_equity`
+- Implement multiple confirmation filters
+- Add proper entry/exit conditions
+- Include commission and slippage considerations
+
+### Code Organization:
+```pine
+//@version=5
+strategy("Strategy Name", overlay=true, ...)
+
+// =============================================================================
+//                           CONFIGURATION (INPUTS)
+// =============================================================================
+
+// Input parameters with proper grouping
+
+// =============================================================================
+//                                CALCULATIONS
+// =============================================================================
+
+// Main logic and calculations
+
+// =============================================================================
+//                               STRATEGY LOGIC
+// =============================================================================
+
+// Entry and exit conditions
+
+// =============================================================================
+//                                PLOTTING
+// =============================================================================
+
+// Visual elements and plots
+```
+
+### File Structure:
+- `strategies/` - Trading strategies (.pine files)
+- `indicators/` - Technical indicators (.pine files)
+- `docs/PINE_SCRIPT_GUIDE.md` - Comprehensive reference guide
+
+## Development Workflow:
+1. Always read `docs/PINE_SCRIPT_GUIDE.md` before implementing Pine Script features
+2. Test strategies thoroughly with backtesting
+3. Implement proper input validation and error handling
+4. Follow the established naming conventions and code structure
+5. Document complex logic with clear comments
+
+## Language Guidelines:
+- Use English for code, function names, and technical comments
+- Use Spanish for user-facing text, strategy names, and input titles when appropriate
+- Maintain consistency within each file
