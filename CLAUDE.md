@@ -9,7 +9,7 @@ This project contains a comprehensive Pine Script programming guide at `docs/PIN
 
 ## Development Guidelines
 - Follow the patterns and best practices outlined in docs/PINE_SCRIPT_GUIDE.md
-- Use proper Pine Script v5 syntax
+- **MANDATORY: All new code must be generated using Pine Script v6 syntax**
 - Include comprehensive input parameters for strategy customization
 - Implement proper risk management and position sizing
 - Test strategies thoroughly before deployment
