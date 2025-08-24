@@ -41,8 +41,8 @@ marketLookback      = input.int(200, title="Market SMA Period", group="Filters",
 showAnnualHigh      = input.bool(true, title="Show Annual High Line", group="Visualization", tooltip="Display the annual high line on chart for reference.")
 boxColor            = input.color(color.new(color.blue, 80), title="Box Color", group="Visualization", tooltip="Color and transparency for Darvas boxes. Lighter colors show more price action.")
 showDebugLabels     = input.bool(false, title="Show Debug Labels", group="Visualization", tooltip="Show debug information about box state and breakout detection.")
-debugStartDate      = input.time(timestamp("01 Jan 2024"), title="Debug Start Date", group="Visualization", tooltip="Start date for showing debug labels")
-debugEndDate        = input.time(timestamp("31 Dec 2024"), title="Debug End Date", group="Visualization", tooltip="End date for showing debug labels")
+debugStartDate      = input.time(timestamp("01 Dec 2020"), title="Debug Start Date", group="Visualization", tooltip="Start date for showing debug labels")
+debugEndDate        = input.time(timestamp("31 Jan 2021"), title="Debug End Date", group="Visualization", tooltip="End date for showing debug labels")
 
 // =============================================================================
 //                               CALCULATIONS
@@ -58,9 +58,9 @@ float fiftyTwoWeekHigh = ta.highest(high[1], annualLookback)
 isNear52WeekHigh = high > fiftyTwoWeekHigh * (1 - nearHighPercent / 100)
 passAnnualFilter = useAnnualHighFilter ? isNear52WeekHigh : true
 
-// Relative high detection
-float recentHigh = ta.highest(high[1], recentHighLookback)
-newRelativeHigh = high > recentHigh
+// Relative high detection - Fixed to use immediate detection without lag
+float recentHigh = ta.highest(high[1], recentHighLookback)  // Previous N days maximum
+newRelativeHigh = high > recentHigh  // Current high vs previous N days
 
 // Volume
 float avgVolume       = ta.sma(volume[1], volumeLookback)
@@ -68,6 +68,17 @@ volumeOnBreakout = useVolumeFilter ? (volume > avgVolume * volumeMultiplier) : t
 
 // Helper function to determine if we should show debug labels (only in specified date range)
 shouldShowDebug() => showDebugLabels and (time >= debugStartDate and time <= debugEndDate)
+
+// Debug: Show HH detection analysis every day (when debug is enabled)
+if shouldShowDebug()
+    hhStatus = newRelativeHigh ? "✓ NEW HH!" : "No HH"
+    hhColor = newRelativeHigh ? color.lime : color.gray
+    label.new(bar_index, high + (high * 0.005),
+             "HH CHECK\n" + hhStatus + "\nO:" + str.tostring(open, "#.##") + " H:" + str.tostring(high, "#.##") +
+             "\nL:" + str.tostring(low, "#.##") + " C:" + str.tostring(close, "#.##") +
+             "\nPrevMax: " + str.tostring(recentHigh, "#.##") +
+             "\nLookback: " + str.tostring(recentHighLookback) + "d",
+             style=label.style_label_down, color=hhColor, textcolor=color.white, size=size.tiny)
 
 // =============================================================================
 //                         DARVAS BOX FORMATION LOGIC
@@ -101,6 +112,9 @@ var float currentBoxBottom = na
 // Trade tracking variables
 var float entryBoxTop = na
 var float currentStopLoss = na
+var float lastValidStopLoss = na  // Always maintain the last valid stop loss level
+var float previousStopLoss = na   // Store previous stop loss to check violations
+var bool currentBoxViolatedPreviousStop = false  // Track if current box violated previous stop loss
 
 // Check for breakout of current active box
 hasBreakout = false
@@ -108,9 +122,8 @@ float breakoutBoxTop = na
 float breakoutBoxBottom = na
 
 if not na(currentBoxTop) and not na(currentBoxBottom)
-    // Apply same tolerance for trading breakouts
-    tradingToleranceUp = currentBoxTop * (1 + breakoutTolerancePct / 100)
-    if high > tradingToleranceUp  // Use tolerance for trading decisions too
+    // Ceiling breakout is direct (no tolerance) - consistent with Darvas methodology
+    if high > currentBoxTop  // Direct ceiling breakout for trading decisions
         hasBreakout := true
         breakoutBoxTop := currentBoxTop
         breakoutBoxBottom := currentBoxBottom
@@ -153,7 +166,8 @@ if isBullMarket and passAnnualFilter
             // Debug: Show when we detect a new relative high
             if shouldShowDebug()
                 label.new(bar_index, high + (high * 0.03),
-                         "NEW REL HIGH\nPrice: " + str.tostring(high) + "\nStarting ceiling hunt",
+                         "NEW REL HIGH ✓\nCurrent: " + str.tostring(high) + "\nPrev Max: " + str.tostring(recentHigh) +
+                         "\nLookback: " + str.tostring(recentHighLookback) + " days\nStarting ceiling hunt",
                          style=label.style_label_down, color=color.lime, textcolor=color.black, size=size.small)
 
     else if boxState == "SEEKING_CEILING_CONF"
@@ -214,7 +228,7 @@ if isBullMarket and passAnnualFilter
                 if shouldShowDebug()
                     label.new(bar_index, low - (low * 0.01),
                              "FLOOR START\nCurrent: " + str.tostring(low) + "\nHistorical: " + str.tostring(historicalLow) +
-                             "\nBars looked back: " + str.tostring(barsToLookBack) + 
+                             "\nBars looked back: " + str.tostring(barsToLookBack) +
                              "\nHighBarIndex: " + str.tostring(highBarIndex) + "\nCurrent Bar: " + str.tostring(bar_index) +
                              "\nCeiling: " + str.tostring(confirmedCeiling) + "\nAnnual Filter: " + str.tostring(useAnnualHighFilter),
                              style=label.style_label_up, color=color.purple, textcolor=color.white, size=size.small)
@@ -235,12 +249,12 @@ if isBullMarket and passAnnualFilter
                 for j = 1 to barsToCheck
                     if not na(low[j])
                         trueMinimum := math.min(trueMinimum, low[j])
-                
+
                 // If we found a lower minimum, update it
                 if trueMinimum < runningFloorMin
                     runningFloorMin := trueMinimum
                     floorConfDaysCount := 0  // Reset confirmation
-                    
+
                     // Debug: Floor update with true minimum
                     if shouldShowDebug()
                         label.new(bar_index, low - (low * 0.01),
@@ -303,12 +317,18 @@ if isBullMarket and passAnnualFilter
                     // Create box with highly visible colors for debugging
                     // Use original coordinates - the problem was elsewhere
 
-                    // Pine Script box.new(left, top, right, bottom)
+                    // Pine Script box.new(left, top, right, bottom) - Green color for Darvas boxes
                     currentBox := box.new(left=highBarIndex, top=confirmedCeiling, right=bar_index, bottom=confirmedFloor,
-                                          border_color=color.new(color.blue, 100), border_width=0, bgcolor=color.new(color.blue, 70))
+                                          border_color=color.new(color.green, 50), border_width=1, bgcolor=color.new(color.green, 80))
 
                     currentBoxTop    := confirmedCeiling
                     currentBoxBottom := confirmedFloor
+
+                    // Update stop loss tracking
+                    previousStopLoss := lastValidStopLoss  // Store the previous stop loss before updating
+                    lastValidStopLoss := confirmedFloor    // Update persistent stop loss level
+                    currentBoxViolatedPreviousStop := false  // Reset violation flag for new box
+
                     boxWasBroken     := false  // Reset breakout flag for new box
 
                     // Debug label for successful box creation
@@ -382,11 +402,11 @@ if isBullMarket and passAnnualFilter
 
 // Handle current active box - extend it properly
 if not na(currentBox) and not na(currentBoxTop) and not na(currentBoxBottom)
-    // Calculate tolerance levels
-    toleranceUp = currentBoxTop * (1 + breakoutTolerancePct / 100)
-    toleranceDown = currentBoxBottom * (1 - breakoutTolerancePct / 100)
+    // Calculate tolerance levels - CEILING direct, FLOOR with tolerance
+    toleranceUp = currentBoxTop  // No tolerance for ceiling breakout - direct
+    toleranceDown = currentBoxBottom * (1 - breakoutTolerancePct / 100)  // Tolerance for floor
 
-    // Check for breakout on current bar with tolerance
+    // Check for breakout on current bar
     currentBreakout = high > toleranceUp or low < toleranceDown
 
     if currentBreakout and not boxWasBroken
@@ -410,13 +430,20 @@ if not na(currentBox) and not na(currentBoxTop) and not na(currentBoxBottom)
             strategy.entry("Darvas Buy", strategy.long)
             entryBoxTop := currentBoxTop
             currentStopLoss := currentBoxBottom
-            
+            lastValidStopLoss := currentBoxBottom  // Ensure persistent level is updated
+
             // Debug trade execution
             if showDebugLabels
                 label.new(bar_index, high + (high * 0.03),
-                         "TRADE EXECUTED ✓\nEntry Price: " + str.tostring(close) + 
+                         "TRADE EXECUTED ✓\nEntry Price: " + str.tostring(close) +
                          "\nStop Loss: " + str.tostring(currentBoxBottom),
                          style=label.style_label_down, color=color.green, textcolor=color.white, size=size.small)
+
+        // Change box color to red ONLY if floor breakout occurred (not ceiling)
+        if low < toleranceDown and not na(currentBox)
+            box.set_bgcolor(currentBox, color.new(color.red, 80))
+            box.set_border_color(currentBox, color.new(color.red, 50))
+        // Note: Ceiling breakouts keep the original green color (success signal)
 
         // Keep the box visible after breakout - don't delete it immediately
         // Only clear the tracking variables, not the box itself
@@ -425,6 +452,19 @@ if not na(currentBox) and not na(currentBoxTop) and not na(currentBoxBottom)
     else if not currentBreakout and not boxWasBroken
         // Price is still within box - extend to current bar
         box.set_right(currentBox, bar_index)
+
+        // Check if current bar violates previous stop loss
+        if not na(previousStopLoss) and low < previousStopLoss and not currentBoxViolatedPreviousStop
+            // Change box color to yellow for stop loss violation
+            box.set_bgcolor(currentBox, color.new(color.yellow, 80))
+            box.set_border_color(currentBox, color.new(color.yellow, 50))
+            currentBoxViolatedPreviousStop := true
+
+            // Debug label for stop loss violation
+            if shouldShowDebug()
+                label.new(bar_index, low - (low * 0.01),
+                         "STOP VIOLATION ⚠️\nLow: " + str.tostring(low) + "\nPrev Stop: " + str.tostring(previousStopLoss),
+                         style=label.style_label_up, color=color.yellow, textcolor=color.black, size=size.small)
 
         // Debug: Show daily breakout check details for active boxes
         if shouldShowDebug()
@@ -448,12 +488,20 @@ if not na(currentBox) and not na(currentBoxTop) and not na(currentBoxBottom)
 if strategy.position_size > 0
     newStopLoss = currentStopLoss
     if not na(currentBoxTop) and not na(currentBoxBottom)
-        // Use current active box for trailing stop
+        // Use current active box for trailing stop - DARVAS RULE: only move up when new box is at higher level
         if not na(entryBoxTop) and currentBoxTop > entryBoxTop and currentBoxBottom > currentStopLoss
             newStopLoss := currentBoxBottom
 
     if newStopLoss != currentStopLoss
         currentStopLoss := newStopLoss
+        lastValidStopLoss := newStopLoss  // Update persistent stop loss line too
+
+        // Debug label for trailing stop update
+        if showDebugLabels
+            label.new(bar_index, low - (low * 0.02),
+                     "TRAILING STOP ↑\nOld: " + str.tostring(currentStopLoss) + "\nNew: " + str.tostring(newStopLoss) +
+                     "\nBox Floor: " + str.tostring(currentBoxBottom),
+                     style=label.style_label_up, color=color.blue, textcolor=color.white, size=size.small)
 
     // Exit via stop-loss at current box floor
     strategy.exit("SL", from_entry="Darvas Buy", stop=currentStopLoss)
@@ -476,8 +524,11 @@ plot(useVolumeFilter ? avgVolume * volumeMultiplier : na, title="Breakout Volume
 // var bgcolor_color = useMarketFilter ? (isBullMarket ? color.new(color.green, 95) : color.new(color.red, 95)) : na
 // bgcolor(bgcolor_color, title="Market Trend Background")
 
-// Active stop loss
+// Active stop loss (when in position)
 plot(strategy.position_size > 0 ? currentStopLoss : na, title="Active Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+
+// Persistent stop loss level - Red dotted line (always visible when available)
+plot(not na(lastValidStopLoss) ? lastValidStopLoss : na, title="Stop Loss Level", color=color.red, linewidth=1, style=plot.style_circles)
 
 // Debug: Show current box status every 10 bars
 if showDebugLabels and bar_index % 10 == 0
