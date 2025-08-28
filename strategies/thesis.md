@@ -8,7 +8,21 @@ This is a **trend-following, long-only strategy**. Our primary goal is not to "b
 
 ---
 
-## 2. The Trading Algorithm
+## 2. The "Techno-Fundamental" Overlay
+
+While the algorithm is primarily technical, Darvas applied a crucial layer of qualitative fundamental analysis to filter his watchlist. This was not traditional value investing; it was a forward-looking assessment of a company's potential to dominate a high-growth industry. The fundamental criteria are applied **before** the technical analysis begins.
+
+1.  **Industry Leadership & Future Potential:** The stock must belong to an industry with a compelling narrative of future growth and innovation. Darvas sought out companies in revolutionary fields (in his time, electronics and rocketry) that were poised for explosive expansion. The core question is: _"Is this company in a business that will be significantly larger and more important in the coming years?"_
+
+2.  **Evidence of Increasing Earnings Power:** The primary fundamental driver is a company's capacity to dramatically increase its earnings. This can be confirmed through recent earnings reports showing strong acceleration or through a strong market anticipation of future earnings breakthroughs due to new products or market conditions. Darvas believed that sustained, powerful price trends are ultimately slaves to "earnings power."
+
+3.  **A Filter, Not a Predictor:** Fundamental analysis is used to create a high-potential watchlist of stocks worth monitoring. It is **not** used to predict _when_ a stock will move. The technical breakout (Phase III) is the sole trigger for action. The strong fundamental story provides the conviction to hold the stock through its trend and manage the position according to the strict technical rules.
+
+> 🔑 **Key principle:** We are not looking for undervalued companies. We are looking for correctly valued, high-growth companies whose future potential is just beginning to be priced in by the market.
+
+---
+
+## 3. The Trading Algorithm
 
 The execution of this thesis is governed by a strict, non-discretionary mechanical algorithm.
 
@@ -19,19 +33,19 @@ The execution of this thesis is governed by a strict, non-discretionary mechanic
 
 ### **Phase II: Stock Screening & Box Definition**
 
-1. **Screening:** Scan for stocks making new relative highs (often near 52-week or all-time highs) and showing strong relative strength.
-2. **Volume Confirmation:** The move to this new high must be accompanied by a trading volume at least **1.5x greater** than its 50-day average volume.
-3. **Define Potential Box Ceiling (Resistance):**
-   - Identify the highest price point reached (swing high).
-   - That high becomes a _potential ceiling_ if, during the **next 2+ trading days**, the stock fails to exceed it.
-4. **Define Potential Box Floor (Support):**
-   - After the ceiling, observe the subsequent pullback.
-   - The lowest price reached in that pullback is a _potential floor_.
-   - That low becomes a _confirmed floor_ if, during the **next 2+ trading days**, the stock does not trade below it.
-5. **Adjustments:**
-   - If a **new higher high** occurs before ceiling confirmation → reset the potential ceiling to that level.
-   - If a **new lower low** occurs before floor confirmation → reset the potential floor and restart confirmation.
-6. **Box Validity:** A box is only valid when **both ceiling and floor have been confirmed** by subsequent price action.
+1.  **Screening:** Scan for stocks from the "Techno-Fundamental" watchlist that are making new relative highs (often near 52-week or all-time highs).
+2.  **Volume Confirmation:** The move to this new high must be accompanied by a trading volume at least **1.5x greater** than its 50-day average volume.
+3.  **Define Potential Box Ceiling (Resistance):**
+    - Identify the highest price point reached (swing high).
+    - That high becomes a _potential ceiling_ if, during the **next 2+ trading days**, the stock fails to exceed it.
+4.  **Define Potential Box Floor (Support):**
+    - After the ceiling, observe the subsequent pullback.
+    - The lowest price reached in that pullback is a _potential floor_.
+    - That low becomes a _confirmed floor_ if, during the **next 2+ trading days**, the stock does not trade below it.
+5.  **Adjustments:**
+    - If a **new higher high** occurs before ceiling confirmation → reset the potential ceiling to that level.
+    - If a **new lower low** occurs before floor confirmation → reset the potential floor and restart confirmation.
+6.  **Box Validity:** A box is only valid when **both ceiling and floor have been confirmed** by subsequent price action.
 
 > 🔑 **Key principle:** Both sides of the box must be confirmed by time and price action. A box cannot be declared valid without this dual confirmation.
 
@@ -57,7 +71,7 @@ The execution of this thesis is governed by a strict, non-discretionary mechanic
 
 ---
 
-## 3. Visual Flowchart (Mermaid)
+## 4. Visual Flowchart (Mermaid)
 
 This flowchart illustrates the complete decision-making process with the corrected confirmation logic.
 
@@ -65,7 +79,7 @@ This flowchart illustrates the complete decision-making process with the correct
 graph TD
     A[Start: Daily Analysis] --> B{Market > 200-Day MA?};
     B -->|No| C[Market is Bearish. Stay in Cash.];
-    B -->|Yes| D[Scan for Stocks at New Highs with Volume];
+    B -->|Yes| D[Scan 'Techno-Fundamental' Watchlist for New Highs];
     D --> E{Volume > 1.5x Average?};
     E -->|No| D;
     E -->|Yes| F[Identify Potential Box Ceiling];

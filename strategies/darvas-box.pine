@@ -87,7 +87,7 @@ validateMarketConditions(marketSmaVal, marketPrice, annualHigh, currentPrice, cu
 // =============================================================================
 //                            DETECT_RELATIVE_HIGH
 // =============================================================================
-// @description: Detects if the price current forms a new relative high 
+// @description: Detects if the price current forms a new relative high
 //               compared with a lookback period configurable
 // @param currentHigh (float) : Current bar's high price
 // @param lookbackPeriod (int) : Number of bars to look back for comparison
@@ -149,7 +149,7 @@ findHistoricalFloor(highBarIdx, currentBarIdx, currentLow) =>
 // @description: Confirms Darvas box floor after N bars without lower lows,
 //               following classic Darvas methodology for floor validation
 // @param runningFloorMin (float) : Current minimum floor candidate
-// @param currentLow (float) : Current bar's low price  
+// @param currentLow (float) : Current bar's low price
 // @param confirmationDays (int) : Required days without new lows
 // @param currentCount (int) : Current confirmation counter
 // @param minBarsAfterHigh (int) : Minimum bars required after ceiling
@@ -238,7 +238,7 @@ createDarvasBox(leftBar, rightBar, topPrice, bottomPrice, boxStyle) =>
 detectBreakout(boxTop, boxBottom, currentHigh, currentLow, tolerancePct) =>
     toleranceUp = boxTop
     toleranceDown = boxBottom * (1 - tolerancePct / 100)
-    
+
     if currentHigh > toleranceUp
         "CEILING_BREAK"
     else if currentLow < toleranceDown
@@ -376,7 +376,7 @@ if isBullMarket and passAnnualFilter
             floorConfDaysCount := 0
             potentialFloor := na
             boxState := "SEEKING_CEILING_CONF"
-            
+
             if shouldShowDebug()
                 debugText = "NEW REL HIGH ✓\nCurrent: " + str.tostring(high) + "\nStarting ceiling hunt"
                 debugBoxInfo(true, debugText, bar_index, high + (high * 0.03), color.lime, "down")
@@ -385,12 +385,12 @@ if isBullMarket and passAnnualFilter
         [isConfirmed, newCount, newCeiling] = confirmCeiling(potentialCeiling, high, ceilingConfirmationDays, ceilingConfDaysCount)
         ceilingConfDaysCount := newCount
         potentialCeiling := newCeiling
-        
+
         if high > potentialCeiling
             highBarIndex := bar_index
             runningFloorMin := na
             barsSinceHigh := 0
-        
+
         if isConfirmed
             confirmedCeiling := potentialCeiling
             runningFloorMin := na
@@ -398,40 +398,40 @@ if isBullMarket and passAnnualFilter
             floorConfDaysCount := 0
             potentialFloor := na
             boxState := "CEILING_CONFIRMED"
-            
+
             if shouldShowDebug()
                 debugText = "CEILING CONFIRMED\nPrice: " + str.tostring(confirmedCeiling) + "\nNow looking for floor..."
                 debugBoxInfo(true, debugText, bar_index, high + (high * 0.03), color.lime, "down")
 
     else if boxState == "CEILING_CONFIRMED"
         barsSinceHigh := na(barsSinceHigh) ? 0 : barsSinceHigh + 1
-        
+
         [floorConfirmed, newFloorCount, newFloor] = confirmFloor(runningFloorMin, low, floorConfirmationDays, floorConfDaysCount, minBarsAfterHighForFloor, barsSinceHigh, highBarIndex, bar_index)
         floorConfDaysCount := newFloorCount
         runningFloorMin := newFloor
-        
+
         if floorConfirmed
             confirmedFloor := runningFloorMin
             barsInBox = bar_index - highBarIndex
-            
+
             if validateBoxQuality(confirmedCeiling, confirmedFloor, barsInBox, minBarsInBox, minBoxHeightPct)
                 boxState := "BOX_FULLY_CONFIRMED"
-                
+
                 if shouldShowDebug()
                     debugText = "BOX CREATED ✓\nTop: " + str.tostring(confirmedCeiling) + " Bottom: " + str.tostring(confirmedFloor)
                     debugBoxInfo(true, debugText, bar_index, high + (high * 0.02), color.green, "down")
-                
+
                 currentBox := createDarvasBox(highBarIndex, bar_index, confirmedCeiling, confirmedFloor, boxColor)
                 currentBoxTop := confirmedCeiling
                 currentBoxBottom := confirmedFloor
-                
+
                 previousStopLoss := lastValidStopLoss
                 lastValidStopLoss := confirmedFloor
                 currentBoxViolatedPreviousStop := false
                 boxWasBroken := false
             else
                 floorConfDaysCount := 0
-        
+
         // Reset on significant higher high
         if not na(confirmedCeiling) and high > confirmedCeiling
             potentialCeiling := high
@@ -456,28 +456,28 @@ if isBullMarket and passAnnualFilter
 // Handle active box breakouts
 if not na(currentBox) and not na(currentBoxTop) and not na(currentBoxBottom)
     breakoutType = detectBreakout(currentBoxTop, currentBoxBottom, high, low, breakoutTolerancePct)
-    
+
     if breakoutType != "NO_BREAK" and not boxWasBroken
         box.set_right(currentBox, bar_index)
         boxWasBroken := true
-        
+
         // Execute trade on ceiling breakout
         if breakoutType == "CEILING_BREAK" and strategy.position_size == 0 and volumeOnBreakout and isBullMarket and passAnnualFilter
             strategy.entry("Darvas Buy", strategy.long)
             entryBoxTop := currentBoxTop
             currentStopLoss := currentBoxBottom
             lastValidStopLoss := currentBoxBottom
-        
+
         // Update colors
         if breakoutType == "FLOOR_BREAK"
             updateBoxColors(currentBox, "FLOOR_BREAK")
-        
+
         currentBoxTop := na
         currentBoxBottom := na
-    
+
     else if breakoutType == "NO_BREAK" and not boxWasBroken
         box.set_right(currentBox, bar_index)
-        
+
         // Check stop violation
         if checkStopViolation(low, previousStopLoss, currentBoxViolatedPreviousStop)
             updateBoxColors(currentBox, "STOP_VIOLATION")
@@ -493,7 +493,7 @@ if strategy.position_size > 0
     if newStopLoss != currentStopLoss
         currentStopLoss := newStopLoss
         lastValidStopLoss := newStopLoss
-    
+
     strategy.exit("SL", from_entry="Darvas Buy", stop=currentStopLoss)
 
 // Bear market exit
@@ -520,3 +520,6 @@ plot(not na(lastValidStopLoss) ? lastValidStopLoss : na, title="Stop Loss Level"
 if showDebugLabels and bar_index % 10 == 0
     debugText = "DEBUG STATUS\nBox State: " + boxState + "\nCurrent Box: " + (na(currentBox) ? "NONE" : "EXISTS") + "\nBull Market: " + str.tostring(isBullMarket) + "\nNew Rel High: " + str.tostring(newRelativeHigh)
     debugBoxInfo(true, debugText, bar_index, high + (high * 0.01), color.white, "down")
+
+// Market filter background color
+bgcolor(useMarketFilter ? (isBullMarket ? color.new(color.green, 95) : color.new(color.red, 95)) : na, title="Market Trend Background")

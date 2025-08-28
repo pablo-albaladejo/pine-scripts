@@ -1,8 +1,8 @@
-# Darvas Box Strategy - Flow Diagram
+# Darvas Box Strategy - Low-Level Flow Diagram
 
-Este diagrama representa la lógica de estados de la estrategia Darvas Box implementada en `strategies/darvas-box.pine`.
+This diagram represents the state machine logic of the Darvas Box strategy implemented in `strategies/darvas-box.pine`.
 
-## Diagrama de Flujo
+## State Flow Diagram
 
 ```mermaid
 graph TD
@@ -74,46 +74,46 @@ graph TD
     style FF fill:#f8bbd9
 ```
 
-## Descripción de Estados
+## State Descriptions
 
-### Estados Principales
+### Main States
 
-1. **IDLE**: Estado inicial, esperando nuevos máximos relativos
-2. **SEEKING_CEILING_CONF**: Confirmando el techo de una posible caja Darvas
-3. **CEILING_CONFIRMED**: Techo confirmado, buscando confirmación del piso
-4. **BOX_FULLY_CONFIRMED**: Caja completamente formada, monitoreando breakouts
+1. **IDLE**: Initial state, waiting for new relative highs
+2. **SEEKING_CEILING_CONF**: Confirming the ceiling of a potential Darvas box
+3. **CEILING_CONFIRMED**: Ceiling confirmed, seeking floor confirmation
+4. **BOX_FULLY_CONFIRMED**: Box fully formed, monitoring for breakouts
 
-### Condiciones de Transición
+### Transition Conditions
 
-- **New Relative High**: Precio actual supera el máximo de los últimos N períodos
-- **Ceiling Confirmed**: N barras consecutivas sin nuevos máximos
-- **Floor Confirmed**: N barras consecutivas sin nuevos mínimos
-- **Box Quality Valid**: La caja cumple criterios de ancho mínimo y altura mínima
-- **Breakout Detection**: Precio rompe por encima o debajo de los límites de la caja
+- **New Relative High**: Current price exceeds the maximum of the last N periods
+- **Ceiling Confirmed**: N consecutive bars without new highs
+- **Floor Confirmed**: N consecutive bars without new lows
+- **Box Quality Valid**: Box meets minimum width and height criteria
+- **Breakout Detection**: Price breaks above or below box boundaries
 
-### Tipos de Breakout
+### Breakout Types
 
-- **CEILING_BREAK**: Precio rompe por encima del techo → Entrada larga
-- **FLOOR_BREAK**: Precio rompe por debajo del piso → Caja inválida
-- **NO_BREAK**: Precio permanece dentro de la caja → Continuar monitoreando
+- **CEILING_BREAK**: Price breaks above ceiling → Long entry
+- **FLOOR_BREAK**: Price breaks below floor → Box invalidated
+- **NO_BREAK**: Price remains within box → Continue monitoring
 
-### Gestión de Riesgo
+### Risk Management
 
-- **Initial Stop Loss**: Establecido en el piso de la caja de entrada
-- **Trailing Stop**: Se actualiza cuando se forman nuevas cajas a niveles superiores
-- **Bear Market Exit**: Salida forzada cuando las condiciones de mercado se deterioran
+- **Initial Stop Loss**: Set at the floor of the entry box
+- **Trailing Stop**: Updated when new boxes form at higher levels
+- **Bear Market Exit**: Forced exit when market conditions deteriorate
 
-### Filtros de Calidad
+### Quality Filters
 
-- **Market Trend Filter**: Solo opera en mercados alcistas
-- **Annual High Filter**: Solo forma cajas cerca de máximos anuales
-- **Volume Filter**: Requiere volumen elevado en breakouts
-- **Box Quality**: Ancho mínimo y altura mínima de cajas
+- **Market Trend Filter**: Only trades in bull markets
+- **Annual High Filter**: Only forms boxes near annual highs
+- **Volume Filter**: Requires elevated volume on breakouts
+- **Box Quality**: Minimum width and height requirements
 
-## Colores del Diagrama
+## Diagram Colors
 
-- **Azul claro**: Estado inicial (IDLE)
-- **Verde**: Estado de confirmación completa (BOX_FULLY_CONFIRMED)
-- **Amarillo**: Ejecución de entrada (Execute Long Entry)
-- **Rojo**: Breakouts de piso (Floor Break)
-- **Rosa**: Salidas forzadas (Bear Market Exit)
+- **Light Blue**: Initial state (IDLE)
+- **Green**: Full confirmation state (BOX_FULLY_CONFIRMED)
+- **Yellow**: Entry execution (Execute Long Entry)
+- **Red**: Floor breakouts (Floor Break)
+- **Pink**: Forced exits (Bear Market Exit)
